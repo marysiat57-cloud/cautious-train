@@ -1,0 +1,7 @@
+name: powb-snake
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - snakemake=9.27.*
+

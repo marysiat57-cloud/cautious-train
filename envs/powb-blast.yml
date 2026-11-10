@@ -1,0 +1,7 @@
+name: powb-blast
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - blast=2.17.*
+
