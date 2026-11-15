@@ -1,27 +1,27 @@
-# Indicate the config file
+# MLST pipeline for Staphylococcus aureus genome assemblies
+# blastn -> filter -> merge_flt -> mlst -> merge_mlst -> unique -> tree
+
+# Indicate the config file (it defines 'genomesdir')
 configfile:
     'config.yml'
 
 # Extract query sequence names (sequence IDs) from file paths
-# to use them as IDs for query files
+# to use them as IDs for query files (the 7 MLST genes)
 seqids, = glob_wildcards('input/queries/{seqid}.fna')
 
 # Extract genome assembly accession numbers (assembly IDs) from file paths
 # to use them as IDs for genome files
 asmids, = glob_wildcards(config['genomesdir'] + '/{asmid}.fna.gz')
 
-# Rule all: collect the final output (multiple files)
-# WARNING: initially runs the pipeline up to the rule merge_flt
+# Rule all: collect the final output of the pipeline:
+# (the tree in the Newick format and its visualisation)
 rule all:
     input:
-        newick ='output/tree.newick',
-        png = 'output/tree.png'
-    
-        
-        #expand('output/mlst/mlst_{asmid}.tsv', asmid=asmids)
+        newick = 'output/tree.newick',
+        png    = 'output/tree.png'
 
-# Rule blastn: for each genome perform a nucletide BLAST search using:
-# - a single-sequence (a fragment of gmk gene) FASTA query file
+# Rule blastn: for each genome perform a nucleotide BLAST search using:
+# - a single-sequence FASTA query file (allele no. 1 of one MLST gene)
 # - a multiple-sequence FASTA file (one staphylococcal genome assembly contigs)
 # Uncompress the gzipped genome assembly file and redirect the output
 # to blastn's stdin while asking blastn to read the subject FASTA sequence
@@ -73,8 +73,9 @@ rule filter:
                                > {log} 2>&1
         '''
 
-# Rule merge_flt: join all filtered BLAST result files into one using
-# a short Bash script (a list of file path on input)
+# Rule merge_flt: for each genome join the filtered BLAST results of all
+# genes into one file using a short Bash script
+# ({seqid} is expanded, {asmid} stays a wildcard: one output file per genome)
 rule merge_flt:
     params:
         mask = rules.filter.output[0].replace('{seqid}', '*')
@@ -92,40 +93,38 @@ rule merge_flt:
            done >> {output} 2>> {log}
         '''
 
-# Rule mlst: perform MLST analysis, one genome at a time
-# rule mlst:
-    #TODO: implement the rule
-    
+#DONE:
+# Rule mlst: perform MLST analysis, one genome at a time.
+# The allele sequences found in the genome are looked up in the PubMLST
+# database files to get the allele numbers and then the sequence type (ST)
 rule mlst:
-    conda: 'envs/powb-python.yml'
-    params:
-        id = '{asmid}'
+    conda:
+        'envs/powb-python.yml'
     input:
-        merge_flt_out = 'output/merge_flt/merged_{asmid}.tsv',
-        allelesdb = 'input/alleles.fna', 
-        mlstdb = 'input/bigsdb.tsv'
+        alleles   = rules.merge_flt.output,
+        allelesdb = 'input/alleles.fna',
+        mlstdb    = 'input/bigsdb.tsv'
     output:
         'output/mlst/mlst_{asmid}.tsv'
     log:
         'log/mlst/mlst_{asmid}.log'
     shell:
-        '''scripts/mlst.py --asmid {params.id} \
-           --allelesdb {input.allelesdb} \
-           --mlstdb {input.mlstdb} \
-           --alleles {input.merge_flt_out} --output {output} \
-           > {log} 2>&1
+        '''scripts/mlst.py --asmid     {wildcards.asmid} \
+                           --allelesdb {input.allelesdb} \
+                           --mlstdb    {input.mlstdb}    \
+                           --alleles   {input.alleles}   \
+                           --output    {output}          \
+                             > {log} 2>&1
         '''
 
-    
-# Rule merge_mlst: join all MLST results files into one using a short Bash
-# script (a list of file path on input)
-# rule merge_mlst:
-    #TODO: implement the rule
+#DONE:
+# Rule merge_mlst: join the MLST results of all genomes into one file
+# using a short Bash script (no wildcards left in the output: one file)
 rule merge_mlst:
     params:
         mask = rules.mlst.output[0].replace('{asmid}', '*')
     input:
-        expand(rules.mlst.output, asmid=asmids, allow_missing=True)
+        expand(rules.mlst.output, asmid=asmids)
     output:
         'output/merge_mlst/merged.tsv'
     log:
@@ -136,50 +135,46 @@ rule merge_mlst:
            for file in "${{files[@]}}"; do
                tail -n +2 ${{file}}
            done >> {output} 2>> {log}
-        '''    
+        '''
 
-
-# Rule unique: from merged BLAST results extract unique merged MLST loci
-# sequences (i.e., one sequence per ST) to a FASTA file
-# rule unique:
-    #TODO: implement the rule
-    
+#DONE:
+# Rule unique: from the merged MLST results extract unique merged MLST loci
+# sequences (i.e., one sequence per ST) to a FASTA file (it serves as an MSA)
 rule unique:
-    conda: 'envs/powb-python.yml'
+    conda:
+        'envs/powb-python.yml'
     input:
-        'output/merge_mlst/merged.tsv'
+        rules.merge_mlst.output
     output:
         'output/unique.fna'
     log:
         'log/unique.log'
     shell:
-        '''scripts/unique.py \
-        --input {input} \
-        --output {output} \
-           > {log} 2>&1
+        '''scripts/unique.py --input  {input}  \
+                             --output {output} \
+                               > {log} 2>&1
         '''
 
-# Rule tree: take the merged MLST results and extracted merged MLST loci
+#DONE:
+# Rule tree: take the merged MLST results and the extracted merged MLST loci
 # sequences, and then compute and visualise a phylogenetic tree (NJ tree)
-# rule tree:
-    #TODO: implement the rule
-    
+# together with the number of genomes per ST
+
 rule tree:
-    conda: 'envs/powb-python.yml'
+    conda:
+        'envs/powb-python.yml'
     input:
-        merged = 'output/merge_mlst/merged.tsv',
-        unique = 'output/unique.fna'
+        merged = rules.merge_mlst.output,
+        unique = rules.unique.output
     output:
         newick = 'output/tree.newick',
-        png = 'output/tree.png'
+        png    = 'output/tree.png'
     log:
-        'log/unique.log'
+        'log/tree.log'
     shell:
-        '''scripts/tree.py \
-        --mlst {input.merged} \
-        --seqs {input.unique} \
-        --outtree {output.newick} \
-        --outvis {output.png} \
-           > {log} 2>&1
+        '''scripts/tree.py --mlst    {input.merged}  \
+                           --seqs    {input.unique}  \
+                           --outtree {output.newick} \
+                           --outvis  {output.png}    \
+                             > {log} 2>&1
         '''
-
