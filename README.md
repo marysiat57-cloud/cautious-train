@@ -159,6 +159,9 @@ interpreted as MLST misclassifications without checking sample metadata.
 ## Authors
 
 Maria Trzcińska ([@marysiat57-cloud](https://github.com/marysiat57-cloud))
+Piotr Ślęzak
+Piotr Michnal
+
 
 ## License
 
